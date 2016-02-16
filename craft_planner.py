@@ -40,6 +40,18 @@ def make_checker(rule):
     def check(state):
         # This code is called by graph(state) and runs millions of times.
         # Tip: Do something with rule['Consumes'] and rule['Requires'].
+        if 'Requires' in rule.keys():
+            for requirement, req_value in rule['Requires'].items():
+                if (requirement not in state.keys()):
+                    return False
+                if (state[requirement] != req_value):
+                    return False
+        if 'Consumes' in rule.keys():
+            for consumbable, quantity in rule['Consumes'].items():
+                if (consumbable not in state.keys()):
+                    return False
+                if (state[consumbable] < quantity):
+                    return False
         return True
 
     return check
@@ -52,7 +64,17 @@ def make_effector(rule):
     def effect(state):
         # This code is called by graph(state) and runs millions of times
         # Tip: Do something with rule['Produces'] and rule['Consumes'].
-        next_state = None
+        next_state = state.copy()
+        if 'Consumes' in rule.keys():
+            #print("consume")
+            for consumbable, quantity in rule['Consumes'].items():
+                next_state[consumbable] -= quantity
+        for product, quantity in rule['Produces'].items():
+            if product not in next_state.keys():
+                next_state[product] = quantity
+            else:
+                next_state[product] += quantity
+        
         return next_state
 
     return effect
@@ -64,7 +86,12 @@ def make_goal_checker(goal):
 
     def is_goal(state):
         # This code is used in the search process and may be called millions of times.
-        return False
+        for item, quantity in goal.items():
+            if (item not in state.keys()):
+                return False
+            if (state[item] < quantity):
+                return False
+        return True
 
     return is_goal
 
@@ -124,5 +151,24 @@ if __name__ == '__main__':
     # Initialize first state from initial inventory
     state = State({key: 0 for key in Crafting['Items']})
     state.update(Crafting['Initial'])
+    
+    #make_goal_checker test
+    '''print(Crafting['Goal'])
+    print(state)
+    print(is_goal(state))'''
+    
+    #make_effector test
+    '''print("start: " + str(state))
+    for recipe in all_recipes:
+        if recipe.check(state):
+            print(recipe.name)
+            state = recipe.effect(state)
+            print(state)'''
 
     # Search - This is you!
+    #search(graph, state, is_goal, 60, heuristic)
+    
+    
+    
+    
+    
