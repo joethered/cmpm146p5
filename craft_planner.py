@@ -1,6 +1,8 @@
 import json
 from collections import namedtuple, defaultdict, OrderedDict
 from timeit import default_timer as time
+from heapq import heappop, heappush
+
 
 Recipe = namedtuple('Recipe', ['name', 'check', 'effect', 'cost'])
 
@@ -33,14 +35,37 @@ class State(OrderedDict):
         return str(dict(item for item in self.items() if item[1] > 0))
 
 def break_down_goal(goal, recipes):
-    # Breaks down a goal into a list subgoals
-    # Returns a list of subgoals as items and conditions, eg. "stone: 3, coal: 1, bench: true"
-    # Trivial goals will have a list size of 1
+    # Breaks down a goal into trivial goals recursively
+    # Takes a goal item and a list of valid recipes
+    # Returns a trivial recipe or a tuple of lists of sub_goals
+    #    eg. "(stone: 3, coal: 1, bench: true)"
+    goal_recipes = []
+    for recipe in recipes:
+        if recipe['Produces'] == goal:
+            goal_recipes.append(recipe)
     # Selects best recipe by time cost
-    best_recipe = min(recipes, key=lambda r:r['Time'])
-    list inputs = best_recipe['Consumes']
-    list checks = best_recipe['Requires']
-    return inputs + checks
+    best_recipe = min(goal_recipes, key=lambda r:r['Time']) # might replace with in depth efficiency algorithm
+    if is_trivial(best_recipe):
+        return best_recipe
+    else:
+        required_item_list = []
+        required_checks_list = []
+        inputs = best_recipe['Consumes']
+        checks = best_recipe['Requires']
+        for input in inputs:
+            sub_goals = break_down_goal(input, recipes)
+            for goal in sub_goals[0]:
+                required_item_list.append(goal)
+            for check in sub_goals[1]:
+                if check not in required_checks_list:
+                    required_checks_list.append(check)
+        return required_item_list, required_checks_list
+    
+def is_trivial(recipe):
+    if any(recipe['Requires']) or any(recipe['Consumes']):
+        return True
+    else:
+        return False
 
 def make_checker(rule):
     # Returns a function to determine whether a state meets a rule's requirements.
@@ -65,6 +90,13 @@ def make_checker(rule):
 
     return check
 
+def get_available_recipes(state, all_recipes):
+    ready_recipies = []
+    for recipe in all_recipes:
+        if recipe.check(state):
+            ready_recipies.append(recipe)
+            
+    return ready_recipies
 
 def make_effector(rule):
     # Returns a function which transitions from state to new_state given the rule.
@@ -83,7 +115,6 @@ def make_effector(rule):
                 next_state[product] = quantity
             else:
                 next_state[product] += quantity
-        
         return next_state
 
     return effect
@@ -121,19 +152,52 @@ def heuristic(state):
 
 def search(graph, state, is_goal, limit, heuristic):
     start_time = time()
+    
+    initial_state = state.copy()
+    times = {initial_state: 0}
+    previous_recipe = {initial_state: (None, None)}
+    queue = [(0, initial_state)]
 
     # Search
-    while time() - start_time < limit:
-        pass
+    while time() - start_time < limit and queue:
+        current_game_time, current_state = heappop(queue)
+        #print("cur " + str(current_state))
+        if is_goal(current_state):
+            print(time() - start_time)
+            print (current_game_time)
+            node = None
+            if previous_recipe[current_state] is not None:
+                node = current_state
+            path = []
+            while previous_recipe[node][0] is not None:
+                path.append(previous_recipe[node][0])
+                node = previous_recipe[node][1]
+                #print(previous_recipe[node][0])
+            
+            return path[::-1] 
+        for name, resulting_state, time_cost in graph(current_state):
+            new_time = current_game_time + time_cost
+            #print("go " + name)
+            #print(resulting_state)
+            #if resulting_state in times:
+                #print("res " + str(times[resulting_state]))
+                #print(new_time)
+            if resulting_state not in times or new_time < times[resulting_state]:
+                times[resulting_state] = new_time
+                previous_recipe[resulting_state] = (name, current_state)
+                #print("he " + name)
+                heappush(queue, (new_time, resulting_state))
+        
 
     # Failed to find a path
+    print(time() - start_time)
     print("Failed to find a path from", state, 'within time limit.')
     return None
 
 if __name__ == '__main__':
     with open('Crafting.json') as f:
         Crafting = json.load(f)
-
+    '''
     # List of items that can be in your inventory:
     print('All items:',Crafting['Items'])
 
@@ -145,7 +209,7 @@ if __name__ == '__main__':
 
     # Dict of crafting recipes (each is a dict):
     print('Example recipe:','craft stone_pickaxe at bench ->',Crafting['Recipes']['craft stone_pickaxe at bench'])
-
+    '''
     # Build rules
     all_recipes = []
     for name, rule in Crafting['Recipes'].items():
@@ -175,7 +239,7 @@ if __name__ == '__main__':
             print(state)'''
 
     # Search - This is you!
-    #search(graph, state, is_goal, 60, heuristic)
+    print(search(graph, state, is_goal, 30, heuristic))
     
     
     
