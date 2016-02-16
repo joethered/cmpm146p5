@@ -1,0 +1,30 @@
+def break_down_goal(goal, recipes):
+    # Breaks down a goal into trivial goals recursively
+	  # Takes a goal item and a list of valid recipes
+    # Returns a trivial recipe or a tuple of lists of sub_goals
+	  #	eg. "(stone: 3, coal: 1, bench: true)"
+	goal_recipes = list[]
+	for recipe in recipes:
+		if recipe['Produces'] == goal:
+		goal_recipes.append(recipe)
+    # Selects best recipe by time cost
+    best_recipe = min(goal_recipes, key=lambda r:r['Time']) # might replace with in depth efficiency algorithm
+	if is_trivial(best_recipe):
+		return best_recipe
+	else:
+	required_item_list = []
+	required_checks_list = []
+		list inputs = best_recipe['Consumes']
+		list checks = best_recipe['Requires']
+		for input in inputs:
+			sub_goals = break_down_goal(input, recipes)
+			for goal in sub-goals[0]:
+				required_item_list.append(goal)
+			for check in sub-goals[1]:
+				if check not in required_checks_list:
+					required_checks_list.append(check)
+		return required_item_list, required_checks_list
+	
+def is_trivial(recipe):
+	if recipe['Requires'] == null and recipe['Consumes'] == null:
+		return true;

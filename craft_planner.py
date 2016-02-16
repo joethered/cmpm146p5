@@ -32,6 +32,15 @@ class State(OrderedDict):
     def __str__(self):
         return str(dict(item for item in self.items() if item[1] > 0))
 
+def break_down_goal(goal, recipes):
+    # Breaks down a goal into a list subgoals
+    # Returns a list of subgoals as items and conditions, eg. "stone: 3, coal: 1, bench: true"
+    # Trivial goals will have a list size of 1
+    # Selects best recipe by time cost
+    best_recipe = min(recipes, key=lambda r:r['Time'])
+    list inputs = best_recipe['Consumes']
+    list checks = best_recipe['Requires']
+    return inputs + checks
 
 def make_checker(rule):
     # Returns a function to determine whether a state meets a rule's requirements.
