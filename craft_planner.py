@@ -5,6 +5,7 @@ from heapq import heappop, heappush
 
 
 Recipe = namedtuple('Recipe', ['name', 'check', 'effect', 'cost', 'heuristic'])
+exploration_factor = 2
 
 class State(OrderedDict):
     """ This class is a thin wrapper around an OrderedDict, which is simply a dictionary which keeps the order in
@@ -132,6 +133,16 @@ def search(graph, state, is_goal, limit):
     queue = [(0, initial_state)]
 
     # Search
+    def search(graph, state, is_goal, limit):
+    start_time = time()
+    initial_state = state.copy()
+    times = {initial_state: 0}
+    previous_recipe = {initial_state: (None, None)}
+    queue = [(0, initial_state)]
+    known_recipes = []
+    current_state = None
+
+    # Search
     while time() - start_time < limit and queue:
         current_game_time, current_state = heappop(queue)
         #print("cur " + str(current_state))
@@ -153,11 +164,15 @@ def search(graph, state, is_goal, limit):
             #print(resulting_state)
             #if resulting_state in times:
                 #print("res " + str(times[resulting_state]))
-                #print(new_time)
+            #print(new_time)
             if resulting_state not in times or new_time < times[resulting_state]:
                 times[resulting_state] = new_time
                 previous_recipe[resulting_state] = (name, current_state)
                 #print("he " + name)
+                if name not in known_recipes:
+                    known_recipes.append(name)
+                    print(name)
+                    new_time -= exploration_factor
                 heappush(queue, (new_time, resulting_state))
 
 
