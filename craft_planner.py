@@ -205,11 +205,12 @@ if __name__ == '__main__':
             print(state)'''
 
     # Search - This is you!
-    action_list, real_time_taken = search(graph, state, is_goal, 30, heuristic)
-    if action_list != None:
-        for action in action_list:
-            print(action)
-    for recipe in action_list:
-        total_cost += Crafting['Recipes'][recipe]['Time']
-    print("In game cost: " + str(total_cost))
-    print("Computation time: " + str(real_time_taken) + " seconds")
+    if (search(graph, state, is_goal, 30, heuristic) != None):
+        action_list, real_time_taken = search(graph, state, is_goal, 30, heuristic)
+        if action_list != None:
+            for action in action_list:
+                print(action)
+        for recipe in action_list:
+            total_cost += Crafting['Recipes'][recipe]['Time']
+        print("In game cost: " + str(total_cost))
+        print("Computation time: " + str(real_time_taken) + " seconds")
