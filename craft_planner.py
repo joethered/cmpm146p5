@@ -118,7 +118,6 @@ def heuristic(state):
 
 def search(graph, state, is_goal, limit, heuristic):
     start_time = time()
-    total_cost = 0
     total_time = 0.000
     initial_state = state.copy()
     times = {initial_state: 0}
@@ -140,7 +139,7 @@ def search(graph, state, is_goal, limit, heuristic):
                 node = previous_recipe[node][1]
                 #print(previous_recipe[node][0])
             total_time = time() - start_time
-            return (path[::-1], total_cost, total_time)
+            return (path[::-1], total_time)
         for name, resulting_state, time_cost in graph(current_state):
             new_time = current_game_time + time_cost
             #print("go " + name)
@@ -153,7 +152,6 @@ def search(graph, state, is_goal, limit, heuristic):
                 previous_recipe[resulting_state] = (name, current_state)
                 #print("he " + name)
                 heappush(queue, (new_time, resulting_state))
-            total_cost = new_time
 
 
     # Failed to find a path
@@ -162,7 +160,8 @@ def search(graph, state, is_goal, limit, heuristic):
     return None
 
 if __name__ == '__main__':
-    with open('Crafting.json') as f:
+    total_cost = 0
+    with open('Plutonium.json') as f:
         Crafting = json.load(f)
     '''
     # List of items that can be in your inventory:
@@ -206,9 +205,11 @@ if __name__ == '__main__':
             print(state)'''
 
     # Search - This is you!
-    action_list, cost, real_time_taken = search(graph, state, is_goal, 30, heuristic)
+    action_list, real_time_taken = search(graph, state, is_goal, 30, heuristic)
     if action_list != None:
         for action in action_list:
             print(action)
-    print("In game cost: " + str(cost))
+    for recipe in action_list:
+        total_cost += Crafting['Recipes'][recipe]['Time']
+    print("In game cost: " + str(total_cost))
     print("Computation time: " + str(real_time_taken) + " seconds")
