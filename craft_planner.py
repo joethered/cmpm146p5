@@ -206,9 +206,12 @@ if __name__ == '__main__':
             print(state)'''
 
     # Search - This is you!
-    print(search(graph, state, is_goal, 30, heuristic))
-    
-    
+    action_list = search(graph, state, is_goal, 30, heuristic)
+    if action_list != None:
+        for action in action_list:
+            print(action)
+    else: # possibly unnecessary
+        print("No path found.")
     
     
     
