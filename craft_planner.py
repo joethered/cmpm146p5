@@ -6,7 +6,6 @@ from heapq import heappop, heappush
 
 Recipe = namedtuple('Recipe', ['name', 'check', 'effect', 'cost'])
 
-
 class State(OrderedDict):
     """ This class is a thin wrapper around an OrderedDict, which is simply a dictionary which keeps the order in
         which elements are added (for consistent key-value pair comparisons). Here, we have provided functionality
@@ -62,7 +61,7 @@ def get_available_recipes(state, all_recipes):
     for recipe in all_recipes:
         if recipe.check(state):
             ready_recipies.append(recipe)
-            
+
     return ready_recipies
 
 def make_effector(rule):
@@ -119,7 +118,8 @@ def heuristic(state):
 
 def search(graph, state, is_goal, limit, heuristic):
     start_time = time()
-    
+    total_cost = 0
+    total_time = 0.000
     initial_state = state.copy()
     times = {initial_state: 0}
     previous_recipe = {initial_state: (None, None)}
@@ -130,8 +130,7 @@ def search(graph, state, is_goal, limit, heuristic):
         current_game_time, current_state = heappop(queue)
         #print("cur " + str(current_state))
         if is_goal(current_state):
-            print(time() - start_time)
-            print (current_game_time)
+            #print (current_game_time)
             node = None
             if previous_recipe[current_state] is not None:
                 node = current_state
@@ -140,8 +139,8 @@ def search(graph, state, is_goal, limit, heuristic):
                 path.append(previous_recipe[node][0])
                 node = previous_recipe[node][1]
                 #print(previous_recipe[node][0])
-            
-            return path[::-1] 
+            total_time = time() - start_time
+            return (path[::-1], total_cost, total_time)
         for name, resulting_state, time_cost in graph(current_state):
             new_time = current_game_time + time_cost
             #print("go " + name)
@@ -154,10 +153,11 @@ def search(graph, state, is_goal, limit, heuristic):
                 previous_recipe[resulting_state] = (name, current_state)
                 #print("he " + name)
                 heappush(queue, (new_time, resulting_state))
-        
+            total_cost = new_time
+
 
     # Failed to find a path
-    print(time() - start_time)
+    #print(time() - start_time)
     print("Failed to find a path from", state, 'within time limit.')
     return None
 
@@ -191,12 +191,12 @@ if __name__ == '__main__':
     # Initialize first state from initial inventory
     state = State({key: 0 for key in Crafting['Items']})
     state.update(Crafting['Initial'])
-    
+
     #make_goal_checker test
     '''print(Crafting['Goal'])
     print(state)
     print(is_goal(state))'''
-    
+
     #make_effector test
     '''print("start: " + str(state))
     for recipe in all_recipes:
@@ -206,12 +206,9 @@ if __name__ == '__main__':
             print(state)'''
 
     # Search - This is you!
-    action_list = search(graph, state, is_goal, 30, heuristic)
+    action_list, cost, real_time_taken = search(graph, state, is_goal, 30, heuristic)
     if action_list != None:
         for action in action_list:
             print(action)
-    else: # possibly unnecessary
-        print("No path found.")
-    
-    
-    
+    print("In game cost: " + str(cost))
+    print("Computation time: " + str(real_time_taken) + " seconds")
