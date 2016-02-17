@@ -1,251 +1,480 @@
-# Colin Peter cypeter@ucsc.edu
-# Eliezer Miron emiron@ucsc.edu
-
+import json
+from collections import namedtuple, defaultdict, OrderedDict
+from timeit import default_timer as time
 from heapq import heappop, heappush
-from math import sqrt
+from typing import ItemsView
+from operator import itemgetter
 
-def pythagoras(p1, p2):
-    x1, y1 = p1
-    x2, y2 = p2
-    return sqrt((x1-x2)**2 + (y1-y2)**2)
+Recipe = namedtuple('Recipe', ['name', 'check', 'effect', 'cost', 'heuristic'])
+Ingredient = namedtuple('Ingredient', ['name', 'back_check', 'deffect', 'cost', 'heuristic'])
+exploration_factor = 1500
 
-def dijkstra_with_point(initial_position, destination, graph, adj, starting_point, ending_point):
-    """ Searches for a minimal cost path through a graph using Dijkstra's algorithm.
 
-    Args:
-        initial_position: The initial cell from which the path extends.
-        destination: The end location for the path.
-        graph: A loaded level, containing walls, spaces, and waypoints.
-        adj: An adjacency function returning cells adjacent to a given cell as well as their respective edge costs.
-        starting_point: the starting point (x, y)
-
-    Returns:
-        If a path exits, return a list containing all cells from initial_position to destination.
-        Otherwise, return None.
-
+class State(OrderedDict):
+    """ This class is a thin wrapper around an OrderedDict, which is simply a dictionary which keeps the order in
+        which elements are added (for consistent key-value pair comparisons). Here, we have provided functionality
+        for hashing, should you need to use a state as a key in another dictionary, e.g. distance[state] = 5. By
+        default, dictionaries are not hashable. Additionally, when the state is converted to a string, it removes
+        all items with quantity 0.
+        Use of this state representation is optional, should you prefer another.
     """
 
-    distances_f = {initial_position: 0}           # Table of distances to cells 
-    distances_r = {destination: 0}
-    previous_cell_f = {initial_position: None}    # Back links from cells to predecessors
-    previous_cell_r = {destination: None}
-    previous_point_f = {initial_position: starting_point}
-    previous_point_r = {destination: ending_point}
-    queue = [(0, initial_position, 'dst'), (0, destination, 'src')]             # The heap/priority queue used
+    def __key(self):
+        return tuple(self.items())
 
-    # Initial distance for starting position
-    distances_f[initial_position] = 0
-    distances_r[destination] = 0
+    def __hash__(self):
+        return hash(self.__key())
 
-    while queue:
-        # Continue with next min unvisited node
-        current_priority, current_node, current_dest = heappop(queue)
-        
-        # Early termination check: if the destination is found, return the path
-        if (current_dest == 'dst' and current_node in previous_cell_r) or (current_dest == 'src' and current_node in previous_cell_f):
-                node = current_node
-                path = []
-                point_path = []
-                while node is not None:
-                    path.append(node)
-                    point_path.append(previous_point_f[node])
-                    node = previous_cell_f[node]
-                path = path[::-1]
-                point_path = point_path[::-1]
-                node = current_node
-                while node is not None:
-                    path.append(node)
-                    point_path.append(previous_point_r[node])
-                    node = previous_cell_r[node]
-                return (path, point_path)
-                
-                    
-        """
-        if current_node == destination:
-            node = destination
+    def __lt__(self, other):
+        return self.__key() < other.__key()
+
+    def copy(self):
+        new_state = State()
+        new_state.update(self)
+        return new_state
+
+    def __str__(self):
+        return str(dict(item for item in self.items() if item[1] > 0))
+
+
+def make_checker(rule):
+    # Returns a function to determine whether a state meets a rule's requirements.
+    # This code runs once, when the rules are constructed before the search is attempted.
+
+    def check(state):
+        # This code is called by graph(state) and runs millions of times.
+        # Tip: Do something with rule['Consumes'] and rule['Requires'].
+        if 'Requires' in rule.keys():
+            for requirement, req_value in rule['Requires'].items():
+                if (requirement not in state.keys()):
+                    return False
+                if (state[requirement] == 0):
+                    return False
+        if 'Consumes' in rule.keys():
+            for consumbable, quantity in rule['Consumes'].items():
+                if (consumbable not in state.keys()):
+                    return False
+                if (state[consumbable] < quantity):
+                    return False
+        return True
+
+    return check
+
+
+def make_back_checker(rule):
+    # Returns a function to determine whether a state meets a rule's requirements.
+    # This code runs once, when the rules are constructed before the search is attempted.
+    def back_check(state):
+        # This code is called by graph(state) and runs millions of times.
+        # Tip: Do something with rule['Consumes'] and rule['Requires'].
+        for item, quantity in state.items():
+            if quantity == 0:
+                continue
+            if item in rule['Produces'].keys():
+                return True
+        return False
+
+    return back_check
+
+
+def get_available_recipes(state, all_recipes):
+    ready_recipies = []
+    for recipe in all_recipes:
+        if recipe.check(state):
+            ready_recipies.append(recipe)
+
+    return ready_recipies
+
+
+def make_effector(rule):
+    # Returns a function which transitions from state to new_state given the rule.
+    # This code runs once, when the rules are constructed before the search is attempted.
+
+    def effect(state):
+        # This code is called by graph(state) and runs millions of times
+        # Tip: Do something with rule['Produces'] and rule['Consumes'].
+        next_state = state.copy()
+        if 'Consumes' in rule.keys():
+            # print("consume")
+            for consumbable, quantity in rule['Consumes'].items():
+                next_state[consumbable] -= quantity
+        for product, quantity in rule['Produces'].items():
+            if product not in next_state.keys():
+                next_state[product] = quantity
+            else:
+                next_state[product] += quantity
+        return next_state
+
+    return effect
+
+
+def make_deffector(rule):
+    # Returns a function which transitions from state to new_state given the rule.
+    # This code runs once, when the rules are constructed before the search is attempted.
+
+    def deffect(state):
+        # This code is called by graph(state) and runs millions of times
+        # Tip: Do something with rule['Produces'] and rule['Consumes'].
+        next_state = state.copy()
+        # print("")
+        # print("from " + str(state))
+        for item, quantity in state.items():
+            if item in rule["Produces"]:
+                produced = rule['Produces'][item]
+                # print("remove " + str(produced) + " " + item)
+                next_state[item] -= produced
+                if next_state[item] < 0:
+                    next_state[item] = 0
+                if 'Consumes' in rule.keys():
+                    for consumbable, quantity in rule['Consumes'].items():
+                        next_state[consumbable] += quantity
+                        # print("\t" + consumbable + ": " + str(quantity))
+                if 'Requires' in rule.keys():
+                    for requirement in rule['Requires'].keys():
+                        next_state[requirement] = 1
+        # print("   to " + str(next_state))
+        return next_state
+
+    return deffect
+
+
+def make_goal_checker(goal):
+    # Returns a function which checks if the state has met the goal criteria.
+    # This code runs once, before the search is attempted.
+
+    def is_goal(state):
+        # This code is used in the search process and may be called millions of times.
+        for item, quantity in goal.items():
+            if (item not in state.keys()):
+                return False
+            if (state[item] < quantity):
+                return False
+        return True
+
+    return is_goal
+
+
+def make_start_checker(start):
+    # Returns a function which checks if the state has met the goal criteria.
+    # This code runs once, before the search is attempted.
+
+    def is_start(state):
+        # This code is used in the search process and may be called millions of times.
+        for item, quantity in state.items():
+            if item in start.keys() and start[item] != quantity:
+                return False
+            if item not in start.keys() and quantity != 0:
+                return False
+        return True
+
+    return is_start
+
+
+def graph(state):
+    # Iterates through all recipes/rules, checking which are valid in the given state.
+    # If a rule is valid, it returns the rule's name, the resulting state after application
+    # to the given state, and the cost for the rule.
+    for r in all_recipes:
+        if r.check(state):
+            yield (r.name, r.effect(state), r.cost, r.heuristic)
+
+
+def reverse_graph(state):
+    # Iterates through all recipes/rules, checking which are valid in the given state.
+    # If a rule is valid, it returns the rule's name, the resulting state after application
+    # to the given state, and the cost for the rule.
+    # for items, quantity in state.items():
+
+    for i in all_ingredients:
+        if i.back_check(state):
+            yield (i.name, i.deffect(state), i.cost, i.heuristic)
+
+
+def make_heuristic(goal):
+    def heuristic(state):
+        # This heuristic function should guide your search.
+        estimate = 0
+        for item, quantity in goal.items():
+            if state[item] != quantity:
+                estimate += abs(quantity - state[item])
+        for item, quantity in state.items():
+            if item in goal.keys():
+                if goal[item] != quantity:
+                    estimate += abs(quantity - goal[item])
+            else:
+                estimate += quantity
+        return estimate
+
+    return heuristic
+
+
+def make_back_heuristic(start, rule):
+    def back_heuristic(state):
+        # This heuristic function should guide your search.
+        estimate = 0
+        for item, quantity in start.items():
+            if state[item] != quantity:
+                estimate += quantity
+            else:
+                estimate += quantity - state[item]
+        if 'Requires' in rule.keys():
+            for item, quantity in state.items():
+                if quantity <= 0 and item in rule['Requires'].keys():
+                    estimate *= 10
+        return estimate
+
+    return back_heuristic
+
+
+# Search
+def search(graph, state, is_goal, limit):
+    start_time = time()
+    initial_state = state.copy()
+    times = {initial_state: 0}
+    previous_recipe = {initial_state: (None, None)}
+    queue = [(0, initial_state)]
+    known_recipes = {}
+    current_state = None
+
+    # Search
+    while time() - start_time < limit and queue:
+        current_game_time, current_state = heappop(queue)
+        # print("cur " + str(current_state))
+        if is_goal(current_state):
+            # print (current_game_time)
+            node = None
+            if previous_recipe[current_state] is not None:
+                node = current_state
             path = []
-            point_path = []
-            while node is not None:
-                path.append(node)
-                point_path.append(previous_point[node])
-                node = previous_cell[node]
-            return (path[::-1], point_path[::-1])
-        """
+            while previous_recipe[node][0] is not None:
+                path.append(previous_recipe[node][0])
+                node = previous_recipe[node][1]
+                # print(previous_recipe[node][0])
+            total_time = time() - start_time
+            return (path[::-1], total_time, len(times))
+        for name, resulting_state, time_cost, heuristic in graph(current_state):
+            new_time = current_game_time + heuristic(resulting_state)
+            # print("go " + name)
+            # print(resulting_state)
+            # if resulting_state in times:
+            # print("res " + str(times[resulting_state]))
+            # print(new_time)
+            if resulting_state not in times or new_time < times[resulting_state]:
+                times[resulting_state] = new_time
+                previous_recipe[resulting_state] = (name, current_state)
+                # print("he " + name)
+                if name not in known_recipes:
+                    known_recipes[name] = 0
+                    # print(name)
+                    new_time /= exploration_factor
+                heappush(queue, (new_time, resulting_state))
 
-        distances = distances_f if current_dest == 'dst' else distances_r
-        previous_point = previous_point_f if current_dest == 'dst' else previous_point_r
-        
-        current_distance = distances[current_node]
-        
-        # Calculate tentative distances to adjacent cells
-        for adjacent_node, edge_cost, new_point in adj(graph, current_node, previous_point[current_node]):
-            new_distance = current_distance + edge_cost
-
-            if adjacent_node not in distances or new_distance < distances[adjacent_node]:
-                # Assign new distance and update link to previous cell
-                heuristic = 0
-                if current_dest == 'dst':
-                    distances_f[adjacent_node] = new_distance
-                    previous_cell_f[adjacent_node] = current_node
-                    previous_point_f[adjacent_node] = new_point
-                    heuristic = pythagoras(new_point, ending_point)
-                else:
-                    distances_r[adjacent_node] = new_distance
-                    previous_cell_r[adjacent_node] = current_node
-                    previous_point_r[adjacent_node] = new_point
-                    heuristic = pythagoras(new_point, starting_point)
-                
-                heappush(queue, (new_distance+heuristic, adjacent_node, current_dest))
-                    
     # Failed to find a path
-    print("Failed to find a path from", initial_position, "to", destination)
-    return (None, None)
-
-
-def in_box(point, box):
-    x, y = point
-    x1, x2, y1, y2 = box
-    return x >= x1 and x <= x2 and y >= y1 and y <= y2
-
-def detail_points(box1, box2):
-    if box1[1] == box2[0]:
-        x_val = box1[1]
-        y_vals = sorted([box1[2], box1[3], box2[2], box2[3]])[1:3]
-        return [(x_val, y_vals[0]), (x_val, y_vals[1])]
-    if box1[0] == box2[1]:
-        x_val = box1[0]
-        y_vals = sorted([box1[2], box1[3], box2[2], box2[3]])[1:3]
-        return [(x_val, y_vals[0]), (x_val, y_vals[1])]
-    if box1[2] == box2[3]:
-        y_val = box1[2]
-        x_vals = sorted([box1[0], box1[1], box2[0], box2[1]])[1:3]
-        return [(x_vals[0], y_val), (x_vals[1], y_val)]
-    if box1[3] == box2[2]:
-        y_val = box1[3]
-        x_vals = sorted([box1[0], box1[1], box2[0], box2[1]])[1:3]
-        return [(x_vals[0], y_val), (x_vals[1], y_val)]
-    print("Boxes are not adjacent!")
+    # print(time() - start_time)
+    print("Failed to find a path from", state, 'within time limit.')
     return None
 
-def points_vertical(p1, p2):
-    if p1[1] == p2[1]:
-        return 0
-    if p1[0] == p2[0]:
-        return 1
-    print("Points are not aligned")
+
+def bidirecitonal_search(graph, state, is_goal, limit, reverse_graph, end, is_start):
+    start_time = time()
+    initial_state = state.copy()
+    end_state = end.copy()
+    f_times = {initial_state: 0}
+    r_times = {end_state: 0}
+    f_previous_recipe = {initial_state: (None, None)}
+    r_previous_recipe = {end_state: (None, None)}
+    queue = [(0, initial_state, 'dst'), (0, end_state, 'src')]
+    known_recipes = {}
+    f_current_state = None
+    r_current_state = None
+    forward_progress = 0
+    reverse_progress = 0
+
+    # Search
+    while time() - start_time < limit and queue:
+        # Continue with next min unvisited node
+        current_game_time, current_state, dst_or_src = heappop(queue)
+        if dst_or_src == 'dst':
+            forward_progress += 1
+        else:
+            reverse_progress += 1
+        print(dst_or_src)
+        # Early termination check: if the destination is found, return the path
+        if (dst_or_src == 'dst' and current_state in r_previous_recipe) or (
+                dst_or_src == 'src' and current_state in f_previous_recipe):
+            node = current_state
+            path = []
+            while f_previous_recipe[node][0] is not None:
+                path.append(f_previous_recipe[node][0])
+                node = f_previous_recipe[node][1]
+            path = path[::-1]
+            node = current_state
+            while r_previous_recipe[node][0] is not None:
+                path.append(r_previous_recipe[node][0])
+                node = r_previous_recipe[node][1]
+            total_time = time() - start_time
+            return (path, total_time)
+
+        times = f_times if dst_or_src == 'dst' else r_times
+        previous_recipe = f_previous_recipe if dst_or_src == 'dst' else r_previous_recipe
+
+        current_time_cost = times[current_state]
+
+        if dst_or_src == 'dst':
+            for name, resulting_state, time_cost, heuristic in graph(current_state):
+                new_time = current_game_time# + time_cost
+
+                if resulting_state not in times or new_time < times[resulting_state]:
+                    f_times[resulting_state] = new_time
+                    f_previous_recipe[resulting_state] = (name, current_state)
+                    if name not in known_recipes:
+                        known_recipes[name] = 0
+                        # print(name)
+                        new_time /= exploration_factor
+
+                    heappush(queue, (new_time + heuristic(resulting_state), resulting_state, dst_or_src))
+        else:# forward_progress >= reverse_progress:
+            for name, resulting_state, time_cost, heuristic in reverse_graph(current_state):
+                new_time = current_game_time# + time_cost
+
+                if resulting_state not in times or new_time < times[resulting_state]:
+                    r_times[resulting_state] = new_time
+                    r_previous_recipe[resulting_state] = (name, current_state)
+                    # if name not in known_recipes:
+                    # known_recipes[name] = 0
+                    # print(name)
+                    new_time += reverse_progress# - forward_progress)
+
+                    heappush(queue, (new_time + heuristic(resulting_state), resulting_state, dst_or_src))
+
+    # Failed to find a path
+    # print(time() - start_time)
+    print("Failed to find a path from", state, 'within time limit.')
     return None
 
-def get_next_point(point, box1, box2):
-    detail1, detail2 = detail_points(box1, box2)
-    if points_vertical(detail1, detail2):
-        if point[1] < detail1[1]:
-            return detail1
-        elif point[1] > detail2[1]:
-            return detail2
-        else:
-            return (detail1[0], point[1])
-    else:
-        if point[0] < detail1[0]:
-            return detail1
-        elif point[0] > detail2[0]:
-            return detail2
-        else:
-            return (point[0], detail1[1])
+
+# Search
+def backsearch(reverse_graph, end, is_start, limit):
+    start_time = time()
+    end_state = end.copy()
+    times = {end_state: 0}
+    previous_recipe = {end_state: (None, None)}
+    queue = [(0, end_state)]
+    known_recipes = {}
+    current_state = None
+
+    # Search
+    while time() - start_time < limit and queue:
+        current_game_time, current_state = heappop(queue)
+        # print("cur " + str(current_state))
+        if is_start(current_state):
+            # print (current_game_time)
+            node = None
+            if previous_recipe[current_state] is not None:
+                node = current_state
+            path = []
+            while previous_recipe[node][0] is not None:
+                path.append(previous_recipe[node][0])
+                node = previous_recipe[node][1]
+                # print(previous_recipe[node][0])
+            total_time = time() - start_time
+            # print (path)
+            # print(current_state)
+            # print(current_game_time)
+            # print(total_time)
+            return (path, total_time)
+        for name, resulting_state, time_cost, heuristic in reverse_graph(current_state):
+            new_time = current_game_time + heuristic(resulting_state)
+            # print("go " + name)
+            # print(resulting_state)
+            # if resulting_state in times:
+            # print("res " + str(times[resulting_state]))
+            # print(new_time)
+            if resulting_state not in times or new_time < times[resulting_state]:
+                # print (new_time)
+                times[resulting_state] = new_time
+                previous_recipe[resulting_state] = (name, current_state)
+                # print("he " + name)
+                if name not in known_recipes:
+                    known_recipes[name] = 0
+                    # print(name)
+                    new_time /= exploration_factor
+                heappush(queue, (new_time, resulting_state))
+
+    # Failed to find a path
+    # print(time() - start_time)
+    print("Failed to find a path from", state, 'within time limit.')
+    return None
 
 
-def adjacent_cells(mesh, box, point):
-    def costify(b):
-        next_point = get_next_point(point, box, b)
-        cost = pythagoras(point, next_point)
-        return (b, cost, next_point)
-    return map(costify, mesh['adj'][box])
-        
-def find_path(source_point, destination_point, mesh):
-    mesh_boxes = mesh['boxes']
-    #mesh_edges = mesh['adj']
-    
-    start_box = None
-    end_box = None
-    #print(source_point)
-    for box in mesh_boxes:
-        if in_box(source_point, box):
-            start_box = box
-        if in_box(destination_point, box):
-            end_box = box
+if __name__ == '__main__':
+    total_cost = 0
+    with open('Crafting.json') as f:
+        Crafting = json.load(f)
+    '''
+    # List of items that can be in your inventory:
+    print('All items:',Crafting['Items'])
+    # List of items in your initial inventory with amounts:
+    print('Initial inventory:',Crafting['Initial'])
+    # List of items needed to be in your inventory at the end of the plan:
+    print('Goal:',Crafting['Goal'])
+    # Dict of crafting recipes (each is a dict):
+    print('Example recipe:','craft stone_pickaxe at bench ->',Crafting['Recipes']['craft stone_pickaxe at bench'])
+    '''
+    # Build rules
+    all_recipes = []
+    all_ingredients = []
+    for name, rule in Crafting['Recipes'].items():
+        checker = make_checker(rule)
+        effector = make_effector(rule)
+        heuristic = make_heuristic(Crafting['Goal'])
+        back_heuristic = make_heuristic(Crafting['Initial'])
+        back_checker = make_back_checker(rule)
+        deffector = make_deffector(rule)
+        recipe = Recipe(name, checker, effector, rule['Time'], heuristic)
+        ingredient = None
+        for product, quantity in rule["Produces"].items():
+            ingredient = Ingredient(name, back_checker, deffector, rule['Time'], back_heuristic)
+        all_recipes.append(recipe)
+        all_ingredients.append(ingredient)
 
-    if start_box == None or end_box == None:
-        print("No path!")
-        return ([], [])
+    # Create a function which checks for the goal
+    is_goal = make_goal_checker(Crafting['Goal'])
+    is_start = make_start_checker(Crafting['Initial'])
 
-    """
-    boxes_to_consider = queue.Queue()
-    boxes_to_consider.put(start_box)
-    previous_box = {}
-    considered = set()
+    # Initialize first state from initial inventory
+    state = State({key: 0 for key in Crafting['Items']})
+    state.update(Crafting['Initial'])
 
-    found_path = 0
-    
-    while not boxes_to_consider.empty():
-        current = boxes_to_consider.get()
-        #print(current, current in considered)
-        
-        if current in considered:
-            continue
-        
-        considered.add(current)
-        if current == end_box:
-            found_path = 1
-            break
+    goal = State({key: 0 for key in Crafting['Items']})
+    goal.update(Crafting['Goal'])
 
-        new_boxes = mesh_edges[current]
-        for box in new_boxes:
-            if not box in considered:
-                previous_box[box] = current
-                boxes_to_consider.put(box)
-    """ 
+    # make_start_checker test
+    '''print(Crafting['Initial'])
+    print(goal)
+    print(is_start(goal))'''
 
-    box_path, point_path = dijkstra_with_point(start_box, end_box, mesh, adjacent_cells, source_point, destination_point)
-    
-    if not box_path:
-        print("No path!")
-        return ([], [])
+    # make_deffector test
+    '''print("start: " + str(state))
+    for ingredient in all_ingredients:
+        if ingredient.back_check(state):
+            print(ingredient.name)
+            state = ingredient.deffect(state)
+            print(state)'''
 
-    """
-    current_point = source_point
-    for i in range(0, len(box_path) - 1):
-        current_box = box_path[i]
-        next_box = box_path[i+1]
-        next_point = get_next_point(current_point, current_box, next_box)
-        print(current_point, detail_points(current_box, next_box))
-        current_point = next_point
-    """
-    """
-    box_path = []
-    current = end_box
-    while current in previous_box:
-        box_path.append(current)
-        current = previous_box[current]
-    box_path.append(start_box)
-    box_path.reverse()
-
-    segment_path = []
-    current_point = source_point
-
-    for i in range(0, len(box_path) - 1):
-        current_box = box_path[i]
-        next_box = box_path[i+1]
-        next_point = get_next_point(current_point, current_box, next_box)
-        
-        #print(next_point)
-        segment_path.append((current_point, next_point))
-        current_point = next_point
-    segment_path.append((current_point, destination_point))
-    """
-
-    segment_path = []
-    point_path.append(destination_point)
-    for i in range(0, len(point_path)-1):
-        segment_path.append((point_path[i], point_path[i+1]))
-    
-    return (segment_path, box_path)
-
+    # Search - This is you!
+    #results = bidirecitonal_search(graph, state, is_goal, 30, reverse_graph, goal, is_start)
+    # results = backsearch(reverse_graph, goal, is_start, 30)
+    results = search(graph, state, is_goal, 30)
+    if (results != None):
+        action_list = results[0]
+        real_time_taken = results[1]
+        num_steps = results[2]
+        if action_list != None:
+            for action in action_list:
+                print(action)
+        for recipe in action_list:
+            total_cost += Crafting['Recipes'][recipe]['Time']
+        print("In game cost: " + str(total_cost))
+        print("Computation time: " + str(real_time_taken) + " seconds")
+        print("Number of states: " + str(num_steps))
