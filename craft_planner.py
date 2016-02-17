@@ -124,16 +124,9 @@ def make_heuristic(goal):
         return estimate
     return heuristic
 
-def search(graph, state, is_goal, limit):
-    start_time = time()
-    total_time = 0.000
-    initial_state = state.copy()
-    times = {initial_state: 0}
-    previous_recipe = {initial_state: (None, None)}
-    queue = [(0, initial_state)]
 
-    # Search
-    def search(graph, state, is_goal, limit):
+# Search
+def search(graph, state, is_goal, limit):
     start_time = time()
     initial_state = state.copy()
     times = {initial_state: 0}
@@ -171,7 +164,7 @@ def search(graph, state, is_goal, limit):
                 #print("he " + name)
                 if name not in known_recipes:
                     known_recipes.append(name)
-                    print(name)
+                    #print(name)
                     new_time -= exploration_factor
                 heappush(queue, (new_time, resulting_state))
 
@@ -229,8 +222,10 @@ if __name__ == '__main__':
             print(state)'''
 
     # Search - This is you!
-    if (search(graph, state, is_goal, 90) != None):
-        action_list, real_time_taken = search(graph, state, is_goal, 30)
+    results = search(graph, state, is_goal, 30)
+    if (results != None):
+        action_list = results[0]
+        real_time_taken = results[1]
         if action_list != None:
             for action in action_list:
                 print(action)
