@@ -111,10 +111,11 @@ def graph(state):
             yield (r.name, r.effect(state), r.cost)
 
 
-def heuristic(state):
-    # This heuristic function should guide your search.
-    return 0
-
+def make_heuristic(goal):
+    def heuristic(state):
+        # This heuristic function should guide your search.
+        return 0
+    return heuristic
 
 def search(graph, state, is_goal, limit, heuristic):
     start_time = time()
