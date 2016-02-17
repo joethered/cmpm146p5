@@ -34,39 +34,6 @@ class State(OrderedDict):
     def __str__(self):
         return str(dict(item for item in self.items() if item[1] > 0))
 
-def break_down_goal(goal, recipes):
-    # Breaks down a goal into trivial goals recursively
-    # Takes a goal item and a list of valid recipes
-    # Returns a trivial recipe or a tuple of lists of sub_goals
-    #    eg. "(stone: 3, coal: 1, bench: true)"
-    goal_recipes = []
-    for recipe in recipes:
-        if recipe['Produces'] == goal:
-            goal_recipes.append(recipe)
-    # Selects best recipe by time cost
-    best_recipe = min(goal_recipes, key=lambda r:r['Time']) # might replace with in depth efficiency algorithm
-    if is_trivial(best_recipe):
-        return best_recipe
-    else:
-        required_item_list = []
-        required_checks_list = []
-        inputs = best_recipe['Consumes']
-        checks = best_recipe['Requires']
-        for input in inputs:
-            sub_goals = break_down_goal(input, recipes)
-            for goal in sub_goals[0]:
-                required_item_list.append(goal)
-            for check in sub_goals[1]:
-                if check not in required_checks_list:
-                    required_checks_list.append(check)
-        return required_item_list, required_checks_list
-    
-def is_trivial(recipe):
-    if any(recipe['Requires']) or any(recipe['Consumes']):
-        return True
-    else:
-        return False
-
 def make_checker(rule):
     # Returns a function to determine whether a state meets a rule's requirements.
     # This code runs once, when the rules are constructed before the search is attempted.
