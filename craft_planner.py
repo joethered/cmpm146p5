@@ -44,7 +44,7 @@ def make_checker(rule):
             for requirement, req_value in rule['Requires'].items():
                 if (requirement not in state.keys()):
                     return False
-                if (state[requirement] != req_value):
+                if (state[requirement] == 0):
                     return False
         if 'Consumes' in rule.keys():
             for consumbable, quantity in rule['Consumes'].items():
@@ -154,6 +154,7 @@ def search(graph, state, is_goal, limit, heuristic):
                 heappush(queue, (new_time, resulting_state))
 
 
+
     # Failed to find a path
     #print(time() - start_time)
     print("Failed to find a path from", state, 'within time limit.')
@@ -161,7 +162,7 @@ def search(graph, state, is_goal, limit, heuristic):
 
 if __name__ == '__main__':
     total_cost = 0
-    with open('Plutonium.json') as f:
+    with open('Crafting.json') as f:
         Crafting = json.load(f)
     '''
     # List of items that can be in your inventory:
