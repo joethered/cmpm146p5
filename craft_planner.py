@@ -5,7 +5,7 @@ from heapq import heappop, heappush
 
 
 Recipe = namedtuple('Recipe', ['name', 'check', 'effect', 'cost', 'heuristic'])
-exploration_factor = 2
+exploration_factor = 5
 
 class State(OrderedDict):
     """ This class is a thin wrapper around an OrderedDict, which is simply a dictionary which keeps the order in
