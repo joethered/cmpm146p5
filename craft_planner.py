@@ -4,7 +4,7 @@ from timeit import default_timer as time
 from heapq import heappop, heappush
 
 
-Recipe = namedtuple('Recipe', ['name', 'check', 'effect', 'cost'])
+Recipe = namedtuple('Recipe', ['name', 'check', 'effect', 'cost', 'heuristic'])
 
 class State(OrderedDict):
     """ This class is a thin wrapper around an OrderedDict, which is simply a dictionary which keeps the order in
@@ -108,16 +108,22 @@ def graph(state):
     # to the given state, and the cost for the rule.
     for r in all_recipes:
         if r.check(state):
-            yield (r.name, r.effect(state), r.cost)
+            yield (r.name, r.effect(state), r.cost, r.heuristic)
 
 
 def make_heuristic(goal):
     def heuristic(state):
         # This heuristic function should guide your search.
-        return 0
+        estimate = 0
+        for item, quantity in goal.items():
+            if item not in state.keys():
+                estimate += quantity
+            else:
+                estimate += quantity - state[item]
+        return estimate
     return heuristic
 
-def search(graph, state, is_goal, limit, heuristic):
+def search(graph, state, is_goal, limit):
     start_time = time()
     total_time = 0.000
     initial_state = state.copy()
@@ -141,8 +147,8 @@ def search(graph, state, is_goal, limit, heuristic):
                 #print(previous_recipe[node][0])
             total_time = time() - start_time
             return (path[::-1], total_time)
-        for name, resulting_state, time_cost in graph(current_state):
-            new_time = current_game_time + time_cost
+        for name, resulting_state, time_cost, heuristic in graph(current_state):
+            new_time = current_game_time + heuristic(resulting_state)
             #print("go " + name)
             #print(resulting_state)
             #if resulting_state in times:
@@ -183,7 +189,8 @@ if __name__ == '__main__':
     for name, rule in Crafting['Recipes'].items():
         checker = make_checker(rule)
         effector = make_effector(rule)
-        recipe = Recipe(name, checker, effector, rule['Time'])
+        heuristic =  make_heuristic(Crafting['Goal'])
+        recipe = Recipe(name, checker, effector, rule['Time'], heuristic)
         all_recipes.append(recipe)
 
     # Create a function which checks for the goal
@@ -207,8 +214,8 @@ if __name__ == '__main__':
             print(state)'''
 
     # Search - This is you!
-    if (search(graph, state, is_goal, 30, heuristic) != None):
-        action_list, real_time_taken = search(graph, state, is_goal, 30, heuristic)
+    if (search(graph, state, is_goal, 90) != None):
+        action_list, real_time_taken = search(graph, state, is_goal, 30)
         if action_list != None:
             for action in action_list:
                 print(action)
